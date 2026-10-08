@@ -1,0 +1,382 @@
+<--Essas regras foram criadas utilizando inteligência artificial e estão sucetíveis a erros
+Não aplique em seu ambiente de produção antes de homologar e verificar se os níveis e as detecções realizadas façam sentido para seu ambiente
+CUIDADO! -->
+
+<group name="purplelab,">
+
+  <!-- ===== Reverse shell ===== -->
+
+  <rule id="100230" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:ba|da|z|k)?sh$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*(?:/dev/(?:tcp|udp)/|(?i:2f6465762f(?:746370|756470)2f)))</match>
+    <description>Linux: possivel reverse shell.</description>
+    <mitre>
+      <id>T1059.004</id>
+    </mitre>
+    <group>purplelab_reverse_shell,</group>
+  </rule>
+
+  <rule id="100235" level="12">
+    <if_sid>100230</if_sid>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+=(?:"[^"\n]*[\x3e\x3c]\x26|(?i:(?:[0-9a-f]{2})*?(?:3e26|3c26))))</match>
+    <description>Linux: shell com /dev/tcp e redirecionamento de descritor -  provavel reverse shell.</description>
+    <mitre>
+      <id>T1059.004</id>
+    </mitre>
+    <group>purplelab_reverse_shell,</group>
+  </rule>
+
+  <rule id="100231" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:nc|ncat|netcat)(?:\.\w+)?$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="(?:-[A-Za-z]*[ec]\b|--(?:sh-)?exec\b))</match>
+    <description>Linux: netcat/ncat possible reverse shell</description>
+    <mitre>
+      <id>T1059.004</id>
+    </mitre>
+    <group>purplelab_reverse_shell,</group>
+  </rule>
+
+  <rule id="100232" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/socat(?:1)?$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="(?i:tcp|udp|openssl)[^":]*:)(?=.*\ba\d+=(?:"(?i:exec|system):|(?i:(?:(?:45|65)(?:58|78)(?:45|65)(?:43|63)|(?:53|73)(?:59|79)(?:53|73)(?:54|74)(?:45|65)(?:4d|6d))3a)))</match>
+    <description>Linux: socat combina transporte de rede e execucao.</description>
+    <mitre>
+      <id>T1059.004</id>
+    </mitre>
+    <group>purplelab_reverse_shell,</group>
+  </rule>
+
+  <!-- Novo: interpretadores (python/perl/ruby/php/lua/node) com socket e spawn de shell. So hex: one-liners tem espacos. Nao cobre script em arquivo. -->
+  <rule id="100233" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:python[\d.]*|perl[\d.]*|ruby[\d.]*|php[\d.]*|lua[\d.]*|nodejs|node)$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+=(?i:(?:[0-9a-f]{2})*?(?:53|73)6f636b(?:6574|6f70656e)))(?=.*\ba\d+=(?i:(?:[0-9a-f]{2})*?(?:2f62696e2f(?:62617368|7368)|7074792e737061776e|64757032)))</match>
+    <description>Linux: interpretador com socket e spawn de shell - possivel reverse shell.</description>
+    <mitre>
+      <id>T1059</id>
+    </mitre>
+    <group>purplelab_reverse_shell,</group>
+  </rule>
+
+  <!-- Novo: mkfifo em diretorio temporario (truque mkfifo + nc sem -e). Pode ser legitimo, revisar. -->
+  <rule id="100234" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/mkfifo$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+="/(?:tmp|var/tmp|dev/shm)/[^"]*"</match>
+    <description>Linux: mkfifo em diretorio temporario (possivel reverse shell com nc).</description>
+    <mitre>
+      <id>T1059.004</id>
+    </mitre>
+    <group>purplelab_reverse_shell,</group>
+  </rule>
+
+  <!-- ===== Defense impairment ===== -->
+
+  <!-- Formas diretas: systemctl, service e /etc/init.d/x (o exe de service/init.d e o shell). Lista inclui wazuh-agent/manager. -->
+  <rule id="100240" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:systemctl|(?:ba|da)?sh)$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="(?:stop|disable|mask|kill)")(?=.*\ba\d+="(?:/etc/init\.d/)?(?:auditd|wazuh-(?:agent|manager)|ossec(?:-hids)?|rsyslog|syslog-ng|systemd-journald(?:\.socket)?)(?:\.service)?")</match>
+    <description>Linux: tentativa de parar/desabilitar servico de seguranca ou logs.</description>
+    <mitre>
+      <id>T1562.001</id>
+      <id>T1562.006</id>
+    </mitre>
+    <group>purplelab_defense_impairment,</group>
+  </rule>
+
+  <!-- Novo: mesma deteccao quando o comando vem em um unico argumento do shell (bash -c "..."), que o auditd grava em hex. Exige systemctl/service/init.d + acao + servico no mesmo argumento, em qualquer ordem. -->
+  <rule id="100241" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:ba|da|z|k)?sh$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+=(?i:(?=(?:[0-9a-f]{2})*?(?:73797374656d63746c|73657276696365|696e69742e64))(?=(?:[0-9a-f]{2})*?(?:73746f70|64697361626c65|6d61736b|6b696c6c))(?=(?:[0-9a-f]{2})*?(?:617564697464|77617a7568|6f73736563|7379736c6f67|6a6f75726e616c64))[0-9a-f]+))</match>
+    <description>Linux: shell com comando para parar/desabilitar servico de seguranca ou logs.</description>
+    <mitre>
+      <id>T1562.001</id>
+      <id>T1562.006</id>
+    </mitre>
+    <group>purplelab_defense_impairment,</group>
+  </rule>
+
+  <rule id="100249" level="0">
+    <if_sid>100240</if_sid>
+    <match type="pcre2">\ba1="kill"\s+a2="-s"\s+a3="(?:SIG)?HUP"</match>
+    <description>Ignora systemctl kill -s HUP (rotacao de logs).</description>
+  </rule>
+
+  <!-- Novo: ignora "kill -s HUP" dentro de argumento hex da 100241. -->
+  <rule id="100248" level="0">
+    <if_sid>100241</if_sid>
+    <match type="pcre2">(?i:6b696c6c(?:20|09)+2d73(?:20|09)+(?:534947)?485550)</match>
+    <description>Ignora kill -s HUP em comando de shell (rotacao de logs).</description>
+  </rule>
+
+  <rule id="100243" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/auditctl$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*(?:\ba\d+="(?:-D|-e0)"|\ba\d+="-e"\s+a\d+="0"))</match>
+    <description>Linux: tentativa de desabilitar auditoria ou remover regras auditd.</description>
+    <mitre>
+      <id>T1562.012</id>
+    </mitre>
+    <group>purplelab_defense_impairment,</group>
+  </rule>
+
+  <!-- Novo: pkill/killall contra processos de seguranca/logs. Ignora sinal HUP (-HUP, -SIGHUP, -1). -->
+  <rule id="100244" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:pkill|killall(?:5)?)$</field>
+    <match type="pcre2">type=EXECVE\b(?!.*\ba\d+="-(?:HUP|SIGHUP|1)")(?=.*\ba\d+="(?:auditd|rsyslogd?|syslog-ng|systemd-journald|wazuh(?:-[a-z]+)?|ossec(?:-[a-z]+)?)")</match>
+    <description>Linux: pkill/killall contra processo de seguranca ou logs.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>purplelab_defense_impairment,</group>
+  </rule>
+
+  <!-- ===== Log tampering ===== -->
+
+  <!-- Inclui .lesshst e .viminfo. Nao cobre caminho relativo; scripts de pacote podem alertar. -->
+  <rule id="100250" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:rm|shred|truncate|unlink)$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="(?:/var/(?:log|ossec/logs)(?:/[^"]*)?|[^"]*/\.(?:\w+_history|lesshst|viminfo))")</match>
+    <description>Linux: tentativa de remover, destruir ou zerar logs/historico.</description>
+    <mitre>
+      <id>T1070.002</id>
+      <id>T1070.003</id>
+    </mitre>
+    <group>purplelab_log_tampering,</group>
+  </rule>
+
+  <rule id="100252" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/journalctl$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="--vacuum-)</match>
+    <description>Linux: journalctl solicita exclusao de journals; revisar manutencao autorizada.</description>
+    <mitre>
+      <id>T1070.002</id>
+    </mitre>
+    <group>purplelab_log_tampering,</group>
+  </rule>
+
+  <!-- Braco hex agora aceita o comando em qualquer posicao do argumento (prefixo alinhado em bytes). O braco em texto so casa sem espacos. Builtins digitados no terminal nao geram execve. -->
+  <rule id="100253" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:ba|da|z|k)?sh$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*(?:\ba\d+="[^"]*(?:history\s+-\w*c|unset\s+HISTFILE)|\ba\d+=(?i:(?:[0-9a-f]{2})*?(?:686973746f7279(?:20|09)+2d(?:[46][1-9a-f]|[57][0-9a])*?63|756e736574(?:20|09)+4849535446494c45))))</match>
+    <description>Linux: shell contem limpeza de historico ou unset HISTFILE.</description>
+    <mitre>
+      <id>T1070.003</id>
+    </mitre>
+    <group>purplelab_log_tampering,</group>
+  </rule>
+
+  <rule id="100254" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:ln|cp)$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="/dev/null")(?=.*\ba\d+="[^"]*/\.\w+_history")</match>
+    <description>Linux: historico de shell sobrescrito ou ligado a /dev/null.</description>
+    <mitre>
+      <id>T1070.003</id>
+    </mitre>
+    <group>purplelab_log_tampering,</group>
+  </rule>
+
+  <!-- Novo: find em logs com delete/rm/shred/truncate. Limpeza agendada legitima tambem alerta, por isso nivel 8. -->
+  <rule id="100255" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/find$</field>
+    <match type="pcre2">type=EXECVE\b(?=.*\ba\d+="/var/(?:log|ossec/logs)(?:/[^"]*)?")(?=.*\ba\d+="(?:-delete|rm|shred|truncate)")</match>
+    <description>Linux: find remove ou zera arquivos em diretorio de logs; revisar manutencao autorizada.</description>
+    <mitre>
+      <id>T1070.002</id>
+    </mitre>
+    <group>purplelab_log_tampering,</group>
+  </rule>
+
+  <!-- Novo: tee gravando em arquivo de persistencia (echo x | tee -a arquivo). Uso administrativo legitimo em sudoers.d tambem alerta. -->
+  <rule id="100256" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/tee$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+="[^"]*/(?:\.ssh/authorized_keys|etc/(?:passwd|shadow|sudoers(?:\.d/[^"]*)?|ld\.so\.preload|rc\.local))"</match>
+    <description>Linux: tee grava em arquivo associado a persistencia ou credenciais.</description>
+    <mitre>
+      <id>T1098.004</id>
+      <id>T1574.006</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- ===== Extended ===== -->
+
+  <!-- Texto ou hex: curl/wget/base64 e pipe para bash/sh/python. Indicio textual, nao prova do payload. -->
+  <rule id="100260" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:ba|da|z|k)?sh$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+=(?:"[^"\n]*\b(?:curl|wget|base64)\b[^"\n]*\|\s*(?:/usr/bin/|/bin/)?(?:bash|sh|python3?)(?=\s|")[^"\n]*"|(?i:(?:[0-9a-f]{2})*(?:6375726c|77676574|626173653634)(?:[0-9a-f]{2})*7c(?:20|09)*(?:2f7573722f62696e2f|2f62696e2f)?(?:62617368|7368|707974686f6e(?:33)?)(?=20|09|$|\s)(?:[0-9a-f]{2})*)(?=\s|$))</match>
+    <description>Linux: shell contem pipeline de download/decodificacao para interpretador.</description>
+    <mitre>
+      <id>T1059.004</id>
+      <id>T1105</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Inclui setenforce 0 e setenforce permissive (maiusculas ou minusculas), tambem dentro de bash -c com ;, &amp;&amp; ou |. -->
+  <rule id="100261" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:setenforce|aa-teardown|(?:ba|da)?sh)$</field>
+    <match type="pcre2">type=EXECVE\b.*(?:\ba0="(?:[^" ]*/)?setenforce"\s+a1="(?i:0|permissive)"|\ba\d+="(?:[^" ]*/)?aa-teardown"|\ba\d+=(?i:(?:[0-9a-f]{2})*?736574656e666f726365(?:20|09)+(?:30|(?:50|70)(?:45|65)(?:52|72)(?:4d|6d)(?:49|69)(?:53|73)(?:53|73)(?:49|69)(?:56|76)(?:45|65)))(?=20|09|3b|26|7c|0a|$|\s))</match>
+    <description>Linux: tentativa de desativar SELinux ou AppArmor.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Chain personalizada (f2b-*, DOCKER, KUBE-*) nao alerta; flush sem chain, -t tabela ou chain nativa alerta. ufw disable alerta. -->
+  <rule id="100262" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.command" type="pcre2">^(?:ip6?tables|ufw)$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+="(?:(?:-F|--flush)"(?!\s+a\d+="(?!(?:INPUT|OUTPUT|FORWARD|PREROUTING|POSTROUTING)")[^-"])|disable")</match>
+    <description>Linux: limpeza de regras de firewall ou desativacao do UFW.</description>
+    <mitre>
+      <id>T1562.004</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Ignora execucoes disparadas pelo kernel (auid 4294967295 = unset). Ainda ampla: alerta consultas e manutencao legitima. -->
+  <rule id="100263" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.command" type="pcre2">^(?:insmod|modprobe)$</field>
+    <field name="audit.auid" type="pcre2" negate="yes">^4294967295$</field>
+    <match type="pcre2">type=EXECVE\b</match>
+    <description>Linux: uso de ferramenta de modulos; revisar autorizacao.</description>
+    <mitre>
+      <id>T1547.006</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Alerta a tentativa, nao comprova alteracao da conta. -->
+  <rule id="100264" level="12">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:useradd|usermod)$</field>
+    <match type="pcre2">type=EXECVE\b.*(?:\ba\d+="(?:-u|--uid)"\s+a\d+="0"|\ba\d+="(?:-u0|--uid=0)")</match>
+    <description>Linux: tentativa de criar ou alterar conta com UID zero.</description>
+    <mitre>
+      <id>T1136.001</id>
+      <id>T1098</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Nivel 10. Alvos: authorized_keys, passwd, shadow, sudoers (e sudoers.d), ld.so.preload, rc.local, crontab. Texto ou hex; nao prova escrita. Inclui caminhos de backup/sinteticos com esses nomes. -->
+  <rule id="100265" level="10">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:ba|da|z|k)?sh$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+=(?:"[^"\n]*\x3e[^"\n]*/(?:\.ssh/authorized_keys|passwd|shadow|sudoers(?:\.d/[^"\n]*)?|ld\.so\.preload|rc\.local|crontab)\b[^"\n]*"|(?i:(?:[0-9a-f]{2})*3e(?:[0-9a-f]{2})*2f(?:2e7373682f617574686f72697a65645f6b657973|706173737764|736861646f77|7375646f657273(?:2e642f[0-9a-f]*)?|6c642e736f2e7072656c6f6164|72632e6c6f63616c|63726f6e746162)(?=20|09|22|27|3b|$|\s)(?:[0-9a-f]{2})*)(?=\s|$))</match>
+    <description>Linux: shell contem redirecionamento para arquivo associado a persistencia ou credenciais.</description>
+    <mitre>
+      <id>T1098.004</id>
+      <id>T1574.006</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Inclui chattr -i (remocao de imutabilidade). Pode representar protecao legitima de arquivos. -->
+  <rule id="100266" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/chattr$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+="[+-][a-zA-Z]*i[a-zA-Z]*"</match>
+    <description>Linux: tentativa de marcar ou desmarcar arquivo como imutavel.</description>
+    <mitre>
+      <id>T1222.002</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Nao cobre script passado a interpretador; instaladores legitimos podem alertar. -->
+  <rule id="100267" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/</field>
+    <match type="pcre2">type=EXECVE\b</match>
+    <description>Linux: execucao de binario em diretorio temporario.</description>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Inclui env (env LD_PRELOAD=x cmd). Somente texto nos argumentos; ambiente herdado nao aparece em EXECVE. -->
+  <rule id="100268" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:(?:ba|da|z|k)?sh|env)$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+=(?:"[^"\n]*\bLD_PRELOAD=[^"\n]*"|(?i:(?:[0-9a-f]{2})*4c445f5052454c4f41443d(?:[0-9a-f]{2})*)(?=\s|$))</match>
+    <description>Linux: atribuicao LD_PRELOAD em shell ou env; revisar biblioteca.</description>
+    <mitre>
+      <id>T1574.006</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Ampla: inclui imagens e backups legitimos; nao prova destruicao. A 100273 eleva quando o destino e disco. -->
+  <rule id="100269" level="6">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/dd$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+="of=[^"]+"</match>
+    <description>Linux: dd solicita escrita em arquivo ou dispositivo.</description>
+    <mitre>
+      <id>T1561.001</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Novo: dd com destino em dispositivo de bloco. -->
+  <rule id="100273" level="10">
+    <if_sid>100269</if_sid>
+    <match type="pcre2">\ba\d+="of=/dev/(?:sd|hd|vd|xvd|nvme|mmcblk)</match>
+    <description>Linux: dd solicita escrita em dispositivo de bloco.</description>
+    <mitre>
+      <id>T1561.001</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Inclui arquivos regulares e consultas de ajuda; revisar manutencao. -->
+  <rule id="100270" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/(?:mke2fs|mkfs(?:\.[\w-]+)?)$</field>
+    <match type="pcre2">type=EXECVE\b</match>
+    <description>Linux: ferramenta de criacao de sistema de arquivos executada.</description>
+    <mitre>
+      <id>T1561</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Aceita flags combinadas (-af, -fa). Modo de simulacao tambem alerta; consulta simples nao alerta. -->
+  <rule id="100271" level="8">
+    <if_sid>80700</if_sid>
+    <field name="audit.exe" type="pcre2">/wipefs$</field>
+    <match type="pcre2">type=EXECVE\b.*\ba\d+="(?:-[A-Za-z]*[ao][A-Za-z]*|--all|--offset(?:=[^"]+)?)"</match>
+    <description>Linux: wipefs solicita remocao de assinaturas.</description>
+    <mitre>
+      <id>T1561.002</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+
+  <!-- Aceita argumentos como url=stratum+tcp:// (com prefixo antes do igual). Nome pode ser simulado; nao comprova mineracao. -->
+  <rule id="100272" level="8">
+    <if_sid>80700</if_sid>
+    <match type="pcre2">type=EXECVE\b.*(?:\ba0="(?:[^" ]*/)?(?:xmrig|minerd)"|\ba\d+="(?:[^"\n]*=)?stratum\+(?:tcp|ssl)://)</match>
+    <description>Linux: nome de processo ou argumento associado a mineracao.</description>
+    <mitre>
+      <id>T1496</id>
+    </mitre>
+    <group>purplelab_extended,</group>
+  </rule>
+</group>  
